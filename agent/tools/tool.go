@@ -37,7 +37,9 @@ type Result struct {
 
 // Context contains dependencies shared by built-in tools.
 type Context struct {
-	WorkDir string
+	WorkDir  string
+	Mode     PermissionMode
+	Approver Approver
 }
 
 // Definition is both the provider-facing tool declaration and its executor.

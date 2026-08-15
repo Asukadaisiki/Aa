@@ -12,7 +12,10 @@ func TestBuiltInToolsLifecycle(t *testing.T) {
 	workDir := t.TempDir()
 	registry := NewRegistry()
 	ctx := context.Background()
-	toolCtx := Context{WorkDir: workDir}
+	toolCtx := Context{
+		WorkDir: workDir,
+		Mode:    PermissionModeAutonomous,
+	}
 
 	create, ok := registry.Find("create")
 	if !ok {
@@ -68,8 +71,59 @@ func TestBuiltInToolsLifecycle(t *testing.T) {
 func TestDeleteRefusesWorkingDirectory(t *testing.T) {
 	workDir := t.TempDir()
 	delete := DeleteDefinition()
-	_, err := delete.Execute(context.Background(), Context{WorkDir: workDir}, json.RawMessage(`{"path":"."}`))
+	_, err := delete.Execute(context.Background(), Context{
+		WorkDir: workDir,
+		Mode:    PermissionModeAutonomous,
+	}, json.RawMessage(`{"path":"."}`))
 	if err == nil {
 		t.Fatal("delete should refuse the working directory")
+	}
+}
+
+func TestApprovalModeRequiresApprover(t *testing.T) {
+	workDir := t.TempDir()
+	create := CreateDefinition()
+	_, err := create.Execute(context.Background(), Context{WorkDir: workDir}, json.RawMessage(`{"path":"denied.txt"}`))
+	if err == nil {
+		t.Fatal("create should require approval when no mode or approver is provided")
+	}
+
+	if err := os.WriteFile(filepath.Join(workDir, "existing.txt"), []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	delete := DeleteDefinition()
+	_, err = delete.Execute(context.Background(), Context{
+		WorkDir: workDir,
+		Mode:    PermissionModeApproval,
+	}, json.RawMessage(`{"path":"existing.txt","recursive":true}`))
+	if err == nil {
+		t.Fatal("delete should require an approver in approval mode")
+	}
+}
+
+func TestApprovalModeUsesApprover(t *testing.T) {
+	workDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workDir, "approved.txt"), []byte("approved"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	read := ReadDefinition()
+	called := false
+	result, err := read.Execute(context.Background(), Context{
+		WorkDir: workDir,
+		Mode:    PermissionModeApproval,
+		Approver: func(_ context.Context, request ApprovalRequest) (bool, error) {
+			called = true
+			if request.Tool != "read" || request.Path == "" {
+				t.Fatalf("unexpected approval request: %+v", request)
+			}
+			return true, nil
+		},
+	}, json.RawMessage(`{"path":"approved.txt"}`))
+	if err != nil {
+		t.Fatalf("approved read: %v", err)
+	}
+	if !called || result.Content[0].Text != "approved" {
+		t.Fatalf("approval callback was not applied")
 	}
 }
