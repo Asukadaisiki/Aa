@@ -1,0 +1,15 @@
+# 所有 Go 源码文件强制使用 LF
+*.go text eol=lf
+
+# 所有常见的文本/配置文件强制使用 LF
+*.mod text eol=lf
+*.sum text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+
+# 二进制文件不要乱改（防止 Git 误判）
+*.png binary
+*.jpg binary
+*.ico binary
