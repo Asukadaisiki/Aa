@@ -127,3 +127,23 @@ func TestApprovalModeUsesApprover(t *testing.T) {
 		t.Fatalf("approval callback was not applied")
 	}
 }
+
+func TestRegistrySearchAndLoad(t *testing.T) {
+	registry := NewRegistry()
+	results := registry.Search("text file")
+	if len(results) == 0 {
+		t.Fatal("search should find at least one text-file tool")
+	}
+	for _, result := range results {
+		if result.Key == "" || result.Description == "" {
+			t.Fatalf("incomplete tool summary: %+v", result)
+		}
+	}
+	read, ok := registry.Loaded("read")
+	if !ok || read.Name != "read" || read.Execute == nil {
+		t.Fatalf("loaded read definition = %+v, ok = %v", read, ok)
+	}
+	if _, ok := registry.Loaded("missing"); ok {
+		t.Fatal("missing tool should not load")
+	}
+}
