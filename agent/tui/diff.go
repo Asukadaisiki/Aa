@@ -10,16 +10,17 @@ type Cursor struct {
 	Col int
 }
 
-// DiffRenderer keeps a fixed-height visible viewport. The logical frame may
-// grow without bound; only its tail is mapped to terminal rows, which makes
-// scrolling deterministic and prevents stale rows from being overwritten.
+// DiffRenderer keeps the complete logical frame and updates it in place. New
+// lines are written with normal CRLF output, so the terminal itself owns the
+// scrollback buffer just like a regular CLI.
 type DiffRenderer struct {
-	terminal    Terminal
-	previous    []string
-	previousTop int
-	width       int
-	height      int
-	initialized bool
+	terminal          Terminal
+	previous          []string
+	previousCursor    Cursor
+	width             int
+	height            int
+	initialized       bool
+	clearOnNextRender bool
 }
 
 func NewDiffRenderer(terminal Terminal) *DiffRenderer {
@@ -34,49 +35,27 @@ func (r *DiffRenderer) Render(lines []string, cursor Cursor, force bool) error {
 	if height < 1 {
 		height = 24
 	}
-	if width != r.width || height != r.height {
-		force = true
+	normalized := make([]string, len(lines))
+	for i, line := range lines {
+		normalized[i] = fitLine(line, width)
 	}
-	visible, top := viewportLines(lines, width, height)
-	if !force && r.initialized && len(visible) == len(r.previous) {
-		if top != r.previousTop {
-			force = true
-		}
+	if len(normalized) == 0 {
+		normalized = []string{""}
 	}
-	if !force && r.initialized && len(visible) == len(r.previous) {
-		var buffer strings.Builder
-		buffer.WriteString("\x1b[?2026h")
-		for i, line := range visible {
-			if line == r.previous[i] {
-				continue
-			}
-			fmt.Fprintf(&buffer, "\x1b[%d;1H\x1b[2K%s", i+1, line)
-		}
-		buffer.WriteString(cursorSequence(cursor, top, height))
-		buffer.WriteString("\x1b[?2026l")
-		if buffer.Len() > len("\x1b[?2026h\x1b[?2026l") {
-			if err := r.terminal.Write(buffer.String()); err != nil {
-				return err
-			}
-		}
-	} else {
-		var buffer strings.Builder
-		buffer.WriteString("\x1b[?2026h\x1b[2J\x1b[H")
-		for i, line := range visible {
-			if i > 0 {
-				buffer.WriteString("\r\n")
-			}
-			buffer.WriteString("\x1b[2K")
-			buffer.WriteString(line)
-		}
-		buffer.WriteString(cursorSequence(cursor, top, height))
-		buffer.WriteString("\x1b[?2026l")
-		if err := r.terminal.Write(buffer.String()); err != nil {
+	if !r.initialized {
+		if err := r.fullRender(normalized, cursor, r.clearOnNextRender); err != nil {
 			return err
 		}
+	} else if force || width != r.width || height != r.height || r.clearOnNextRender {
+		if err := r.fullRender(normalized, cursor, true); err != nil {
+			return err
+		}
+	} else if err := r.diffRender(normalized, cursor); err != nil {
+		return err
 	}
-	r.previous = visible
-	r.previousTop = top
+	r.clearOnNextRender = false
+	r.previous = normalized
+	r.previousCursor = cursor
 	r.width, r.height = width, height
 	r.initialized = true
 	return nil
@@ -86,26 +65,121 @@ func (r *DiffRenderer) Reset() {
 	r.previous = nil
 	r.initialized = false
 	r.width, r.height = 0, 0
-	r.previousTop = 0
+	r.clearOnNextRender = true
 }
 
-func viewportLines(lines []string, width, height int) ([]string, int) {
-	start := len(lines) - height
-	if start < 0 {
-		start = 0
+func (r *DiffRenderer) fullRender(lines []string, cursor Cursor, clear bool) error {
+	var buffer strings.Builder
+	buffer.WriteString("\x1b[?2026h")
+	if clear {
+		// Same normal-screen strategy as pi: clear the visible screen and its
+		// scrollback only when a full redraw is unavoidable.
+		buffer.WriteString("\x1b[2J\x1b[H\x1b[3J")
 	}
-	visible := make([]string, 0, minInt(height, len(lines)))
-	for i := start; i < len(lines); i++ {
-		visible = append(visible, fitLine(lines[i], width))
+	for i, line := range lines {
+		if i > 0 {
+			buffer.WriteString("\r\n")
+		}
+		buffer.WriteString(line)
 	}
-	return visible, start
+	moveCursorFromEnd(&buffer, len(lines)-1, cursor)
+	buffer.WriteString("\x1b[?2026l")
+	return r.terminal.Write(buffer.String())
 }
 
-func minInt(a, b int) int {
-	if a < b {
-		return a
+func (r *DiffRenderer) diffRender(lines []string, cursor Cursor) error {
+	firstChanged := -1
+	maxLines := len(lines)
+	if len(r.previous) > maxLines {
+		maxLines = len(r.previous)
 	}
-	return b
+	for i := 0; i < maxLines; i++ {
+		oldLine, newLine := "", ""
+		if i < len(r.previous) {
+			oldLine = r.previous[i]
+		}
+		if i < len(lines) {
+			newLine = lines[i]
+		}
+		if oldLine != newLine {
+			if firstChanged == -1 {
+				firstChanged = i
+			}
+		}
+	}
+	if firstChanged == -1 {
+		var buffer strings.Builder
+		buffer.WriteString("\x1b[?2026h")
+		moveCursorBetween(&buffer, r.previousCursor, cursor)
+		buffer.WriteString("\x1b[?2026l")
+		return r.terminal.Write(buffer.String())
+	}
+	if firstChanged < len(r.previous)-r.height {
+		return r.fullRender(lines, cursor, true)
+	}
+
+	var buffer strings.Builder
+	buffer.WriteString("\x1b[?2026h")
+	previousLast := len(r.previous) - 1
+	moveCursorDown := previousLast - r.previousCursor.Row
+	if moveCursorDown > 0 {
+		fmt.Fprintf(&buffer, "\x1b[%dB", moveCursorDown)
+	}
+	if firstChanged == len(r.previous) {
+		buffer.WriteString("\r\n")
+	} else {
+		moveUp := previousLast - firstChanged
+		if moveUp > 0 {
+			fmt.Fprintf(&buffer, "\x1b[%dA", moveUp)
+		}
+		buffer.WriteString("\r")
+	}
+	for i := firstChanged; i < len(lines); i++ {
+		if i > firstChanged {
+			buffer.WriteString("\r\n")
+		}
+		buffer.WriteString("\x1b[2K")
+		buffer.WriteString(lines[i])
+	}
+	for i := len(lines); i < len(r.previous); i++ {
+		buffer.WriteString("\r\n\x1b[2K")
+	}
+	moveCursorFromEnd(&buffer, len(lines)-1, cursor)
+	buffer.WriteString("\x1b[?2026l")
+	return r.terminal.Write(buffer.String())
+}
+
+func moveCursorFromEnd(buffer *strings.Builder, lastRow int, cursor Cursor) {
+	row := cursor.Row
+	if row < 0 {
+		row = 0
+	}
+	if row > lastRow {
+		row = lastRow
+	}
+	if moveUp := lastRow - row; moveUp > 0 {
+		fmt.Fprintf(buffer, "\x1b[%dA", moveUp)
+	}
+	buffer.WriteString("\r")
+	col := cursor.Col + 1
+	if col < 1 {
+		col = 1
+	}
+	fmt.Fprintf(buffer, "\x1b[%dG", col)
+}
+
+func moveCursorBetween(buffer *strings.Builder, from, to Cursor) {
+	if delta := to.Row - from.Row; delta > 0 {
+		fmt.Fprintf(buffer, "\x1b[%dB", delta)
+	} else if delta < 0 {
+		fmt.Fprintf(buffer, "\x1b[%dA", -delta)
+	}
+	buffer.WriteString("\r")
+	col := to.Col + 1
+	if col < 1 {
+		col = 1
+	}
+	fmt.Fprintf(buffer, "\x1b[%dG", col)
 }
 
 func fitLine(line string, width int) string {
@@ -142,19 +216,4 @@ func truncateANSI(line string, width int) string {
 		i = next
 	}
 	return result.String() + reset + strings.Repeat(" ", width-used)
-}
-
-func cursorSequence(cursor Cursor, viewportTop, height int) string {
-	row := cursor.Row - viewportTop + 1
-	if row < 1 {
-		row = 1
-	}
-	if row > height {
-		row = height
-	}
-	col := cursor.Col + 1
-	if col < 1 {
-		col = 1
-	}
-	return fmt.Sprintf("\x1b[%d;%dH", row, col)
 }

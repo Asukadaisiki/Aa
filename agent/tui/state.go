@@ -51,12 +51,12 @@ func (s State) StatsLine(style func(string, string) string) string {
 }
 
 func (s State) statsText(style func(string, string) string) string {
-	prompt := s.LastUsage.PromptTokens()
 	cache := "n/a"
 	if s.CacheKnown {
+		prompt := s.Totals.InputTokens + s.Totals.CacheReadTokens + s.Totals.CacheWriteTokens
 		rate := 0.0
 		if prompt > 0 {
-			rate = float64(s.LastUsage.CacheReadTokens) / float64(prompt) * 100
+			rate = float64(s.Totals.CacheReadTokens) / float64(prompt) * 100
 		}
 		cache = fmt.Sprintf("read %s, write %s, hit %.1f%%", formatTokens(s.Totals.CacheReadTokens), formatTokens(s.Totals.CacheWriteTokens), rate)
 	}

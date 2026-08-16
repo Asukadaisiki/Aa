@@ -19,14 +19,14 @@ func (t *testTerminal) Stop() error                      { return nil }
 func (t *testTerminal) Size() (int, int)                 { return t.width, t.height }
 func (t *testTerminal) Write(value string) error         { t.writes = append(t.writes, value); return nil }
 
-func TestDiffRendererOnlyClearsOnFullRedraw(t *testing.T) {
+func TestDiffRendererUsesIncrementalNormalScreenRedraw(t *testing.T) {
 	terminal := &testTerminal{width: 20, height: 4}
 	renderer := NewDiffRenderer(terminal)
 	if err := renderer.Render([]string{"one", "two"}, Cursor{Row: 1, Col: 3}, true); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(terminal.writes[0], "\x1b[2J") {
-		t.Fatalf("first render did not clear screen: %q", terminal.writes[0])
+	if strings.Contains(terminal.writes[0], "\x1b[2J") {
+		t.Fatalf("first render unexpectedly cleared the normal screen: %q", terminal.writes[0])
 	}
 	styled := frameLines(NewState(), ".", 20, func(code, text string) string { return code + text + reset })
 	terminal = &testTerminal{width: 20, height: 12}

@@ -60,6 +60,11 @@ type wireRequest struct {
 	ReasoningEffort string                   `json:"reasoning_effort,omitempty"`
 	ResponseFormat  *provider.ResponseFormat `json:"response_format,omitempty"`
 	Stream          bool                     `json:"stream,omitempty"`
+	StreamOptions   *streamOptions           `json:"stream_options,omitempty"`
+}
+
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type wireMessage struct {
@@ -152,6 +157,9 @@ func (c *Client) makeRequest(req provider.Request, stream bool) ([]byte, error) 
 		return nil, fmt.Errorf("openai model is required")
 	}
 	w := wireRequest{Model: model, Messages: make([]wireMessage, 0, len(req.Messages)), MaxTokens: req.MaxTokens, Temperature: req.Temperature, Stop: req.Stop, Thinking: req.Thinking, ReasoningEffort: req.ReasoningEffort, ResponseFormat: req.ResponseFormat, Stream: stream}
+	if stream {
+		w.StreamOptions = &streamOptions{IncludeUsage: true}
+	}
 	if req.System != "" {
 		w.Messages = append(w.Messages, wireMessage{Role: provider.RoleSystem, Content: req.System})
 	}

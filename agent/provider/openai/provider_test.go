@@ -20,14 +20,17 @@ func TestStreamSupportsMultiTurnMessagesAndToolDefinitions(t *testing.T) {
 			t.Errorf("authorization = %q", got)
 		}
 		var request struct {
-			Stream   bool             `json:"stream"`
+			Stream        bool `json:"stream"`
+			StreamOptions struct {
+				IncludeUsage bool `json:"include_usage"`
+			} `json:"stream_options"`
 			Messages []map[string]any `json:"messages"`
 			Tools    []map[string]any `json:"tools"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatal(err)
 		}
-		if !request.Stream || len(request.Messages) != 4 || len(request.Tools) != 1 {
+		if !request.Stream || !request.StreamOptions.IncludeUsage || len(request.Messages) != 4 || len(request.Tools) != 1 {
 			t.Fatalf("unexpected request: %+v", request)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
