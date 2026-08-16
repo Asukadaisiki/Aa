@@ -54,6 +54,15 @@ func (s *Session) Len() int {
 	return len(s.messages)
 }
 
+func (s *Session) Clear() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.messages = nil
+	s.mu.Unlock()
+}
+
 func cloneMessage(message provider.Message) provider.Message {
 	message.ToolCalls = append([]provider.ToolCall(nil), message.ToolCalls...)
 	for i := range message.ToolCalls {

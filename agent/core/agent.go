@@ -81,3 +81,10 @@ func (a *Agent) Messages() []provider.Message {
 	}
 	return a.session.Messages()
 }
+
+func (a *Agent) ClearSession() {
+	if a == nil || a.session == nil {
+		return
+	}
+	a.session.Clear()
+}
