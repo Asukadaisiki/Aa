@@ -37,15 +37,25 @@ func main() {
 
 	input := bufio.NewReader(os.Stdin)
 	toolContext := tools.Context{WorkDir: absWorkDir, Mode: mode}
+	terminal := tui.NewProcessTerminal(os.Stdin, os.Stdout)
+	var approvalBroker *tui.ApprovalBroker
 	if mode == tools.PermissionModeApproval {
-		toolContext.Approver = terminalApprover(input)
+		if *noANSI || !terminal.Interactive() {
+			toolContext.Approver = terminalApprover(input)
+		} else {
+			approvalBroker = tui.NewApprovalBroker()
+			toolContext.Approver = approvalBroker.Approve
+		}
 	}
 	agent, err := core.NewAgentFromConfig(cfg, tools.NewRegistry(), toolContext, nil)
 	if err != nil {
 		fatal(err)
 	}
 
-	app, err := tui.New(agent, tui.Options{Input: input, Output: os.Stdout, WorkDir: absWorkDir, ANSI: !*noANSI})
+	app, err := tui.New(agent, tui.Options{
+		Input: input, Output: os.Stdout, WorkDir: absWorkDir, ANSI: !*noANSI,
+		ContextWindow: cfg.EffectiveContextWindow(), Terminal: terminal, ApprovalBroker: approvalBroker,
+	})
 	if err != nil {
 		fatal(err)
 	}

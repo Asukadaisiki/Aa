@@ -25,6 +25,7 @@ type Config struct {
 	Model          string `yaml:"model"`
 	URL            string `yaml:"url"`
 	ThinkingEffort string `yaml:"thinking-effort"`
+	ContextWindow  int    `yaml:"context-window"`
 	APIKey         string `yaml:"api_key"`
 }
 
@@ -69,6 +70,9 @@ func Parse(data []byte) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.ContextWindow < 0 {
+		return fmt.Errorf("context-window must not be negative")
+	}
 	if strings.TrimSpace(c.Provider) != ProviderDeepSeek {
 		return fmt.Errorf("provider must be %q, got %q", ProviderDeepSeek, c.Provider)
 	}
@@ -84,6 +88,21 @@ func (c Config) Validate() error {
 		return nil
 	default:
 		return fmt.Errorf("thinking-effort must be disabled, high, or max")
+	}
+}
+
+// EffectiveContextWindow returns the configured limit or a known model limit.
+// Unknown models intentionally return zero so the UI can display an unknown
+// limit instead of presenting a fabricated number.
+func (c Config) EffectiveContextWindow() int {
+	if c.ContextWindow > 0 {
+		return c.ContextWindow
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Model)) {
+	case "deepseek-v4-flash", "deepseek-v4-pro":
+		return 1_000_000
+	default:
+		return 0
 	}
 }
 

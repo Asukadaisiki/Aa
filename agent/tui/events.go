@@ -12,6 +12,8 @@ func eventLabel(event message.Event) string {
 		return "tool"
 	case message.EventToolResult:
 		return "tool result"
+	case message.EventUsage:
+		return "usage"
 	case message.EventDone:
 		return "done"
 	case message.EventError:

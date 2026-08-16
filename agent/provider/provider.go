@@ -24,6 +24,7 @@ type Message struct {
 	Role             Role       `json:"role"`
 	Content          string     `json:"content,omitempty"`
 	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	Usage            Usage      `json:"usage,omitempty"`
 	Name             string     `json:"name,omitempty"`
 	ToolCallID       string     `json:"tool_call_id,omitempty"`
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
@@ -65,9 +66,21 @@ type ResponseFormat struct {
 }
 
 type Usage struct {
-	InputTokens  int `json:"input_tokens,omitempty"`
-	OutputTokens int `json:"output_tokens,omitempty"`
-	TotalTokens  int `json:"total_tokens,omitempty"`
+	// InputTokens contains prompt tokens that were not read from the cache.
+	InputTokens      int  `json:"input_tokens,omitempty"`
+	OutputTokens     int  `json:"output_tokens,omitempty"`
+	CacheReadTokens  int  `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int  `json:"cache_write_tokens,omitempty"`
+	TotalTokens      int  `json:"total_tokens,omitempty"`
+	CacheReported    bool `json:"-"`
+}
+
+func (u Usage) PromptTokens() int {
+	return u.InputTokens + u.CacheReadTokens + u.CacheWriteTokens
+}
+
+func (u Usage) HasCacheData() bool {
+	return u.CacheReported || u.CacheReadTokens > 0 || u.CacheWriteTokens > 0
 }
 
 type Response struct {

@@ -80,3 +80,18 @@ func TestConfigAPIKeyTakesPriorityOverEnvironment(t *testing.T) {
 		t.Fatalf("config API key should be used before environment fallback: %v", err)
 	}
 }
+
+func TestEffectiveContextWindowUsesConfiguredAndKnownDefaults(t *testing.T) {
+	known := Config{Model: "deepseek-v4-flash"}
+	if got := known.EffectiveContextWindow(); got != 1_000_000 {
+		t.Fatalf("known context window = %d", got)
+	}
+	configured := Config{Model: "unknown", ContextWindow: 321}
+	if got := configured.EffectiveContextWindow(); got != 321 {
+		t.Fatalf("configured context window = %d", got)
+	}
+	unknown := Config{Model: "unknown"}
+	if got := unknown.EffectiveContextWindow(); got != 0 {
+		t.Fatalf("unknown context window = %d", got)
+	}
+}

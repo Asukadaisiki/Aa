@@ -211,15 +211,47 @@ type wireResponse struct {
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
+	Usage wireUsage `json:"usage"`
+}
+
+type wireUsage struct {
+	PromptTokens     int  `json:"prompt_tokens"`
+	CompletionTokens int  `json:"completion_tokens"`
+	TotalTokens      int  `json:"total_tokens"`
+	PromptCacheHit   *int `json:"prompt_cache_hit_tokens"`
+	PromptDetails    *struct {
+		CachedTokens     int `json:"cached_tokens"`
+		CacheWriteTokens int `json:"cache_write_tokens"`
+	} `json:"prompt_tokens_details"`
+}
+
+func (u wireUsage) toProvider() provider.Usage {
+	cacheReported := u.PromptDetails != nil || u.PromptCacheHit != nil
+	cacheRead := 0
+	cacheWrite := 0
+	if u.PromptDetails != nil {
+		cacheRead = u.PromptDetails.CachedTokens
+		cacheWrite = u.PromptDetails.CacheWriteTokens
+	} else if u.PromptCacheHit != nil {
+		cacheRead = *u.PromptCacheHit
+	}
+	input := u.PromptTokens - cacheRead - cacheWrite
+	if input < 0 {
+		input = 0
+	}
+	total := u.TotalTokens
+	if total == 0 {
+		total = input + cacheRead + cacheWrite + u.CompletionTokens
+	}
+	return provider.Usage{
+		InputTokens: input, OutputTokens: u.CompletionTokens,
+		CacheReadTokens: cacheRead, CacheWriteTokens: cacheWrite,
+		TotalTokens: total, CacheReported: cacheReported,
+	}
 }
 
 func (r wireResponse) toProvider() provider.Response {
-	result := provider.Response{ID: r.ID, Model: r.Model, Usage: provider.Usage{InputTokens: r.Usage.PromptTokens, OutputTokens: r.Usage.CompletionTokens, TotalTokens: r.Usage.TotalTokens}}
+	result := provider.Response{ID: r.ID, Model: r.Model, Usage: r.Usage.toProvider()}
 	if len(r.Choices) == 0 {
 		return result
 	}
@@ -253,11 +285,7 @@ type streamChunk struct {
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
+	Usage wireUsage `json:"usage"`
 }
 
 func readSSE(body io.Reader, handler provider.StreamHandler) (provider.Response, error) {
@@ -282,8 +310,8 @@ func readSSE(body io.Reader, handler provider.StreamHandler) (provider.Response,
 			if result.ID == "" {
 				result.ID, result.Model = chunk.ID, chunk.Model
 			}
-			if chunk.Usage.TotalTokens != 0 {
-				result.Usage = provider.Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens, TotalTokens: chunk.Usage.TotalTokens}
+			if chunk.Usage.TotalTokens != 0 || chunk.Usage.PromptTokens != 0 {
+				result.Usage = chunk.Usage.toProvider()
 			}
 			for _, choice := range chunk.Choices {
 				if choice.FinishReason != "" {

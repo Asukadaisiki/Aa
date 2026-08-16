@@ -10,6 +10,7 @@ const (
 	CommandClear Command = "clear"
 	CommandQuit  Command = "quit"
 	CommandCount Command = "count"
+	CommandStats Command = "stats"
 )
 
 func parseInput(line string) (Command, string) {
@@ -30,6 +31,8 @@ func parseInput(line string) (Command, string) {
 		return CommandQuit, ""
 	case "count", "history":
 		return CommandCount, ""
+	case "stats", "usage":
+		return CommandStats, ""
 	default:
 		return CommandNone, trimmed
 	}

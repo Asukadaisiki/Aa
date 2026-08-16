@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -21,6 +22,8 @@ type RenderOptions struct {
 	ANSI  bool
 }
 
+// Render is retained for deterministic/non-interactive mode. The live
+// terminal path consumes frameLines and updates only changed rows.
 func Render(w io.Writer, state State, workDir string, options RenderOptions) error {
 	width := options.Width
 	if width < 40 {
@@ -32,58 +35,45 @@ func Render(w io.Writer, state State, workDir string, options RenderOptions) err
 		}
 		return code + text + reset
 	}
-	if options.ANSI {
-		if _, err := io.WriteString(w, "\x1b[2J\x1b[H"); err != nil {
+	for _, line := range frameLines(state, workDir, width, style) {
+		if _, err := fmt.Fprintln(w, line); err != nil {
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(w, "%s\n", style(cyan+bold, "Aa · Agent TUI")); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "%s  %s\n", style(dim, "workspace:"), workDir); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "%s  %s\n", style(dim, "status:"), statusText(state, style)); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(w, strings.Repeat("─", width)); err != nil {
-		return err
+	return nil
+}
+
+func frameLines(state State, workDir string, width int, style func(string, string) string) []string {
+	lines := []string{
+		style(cyan+bold, "Aa · Agent TUI"),
+		style(dim, "workspace:") + "  " + workDir,
+		style(dim, "status:") + "  " + statusText(state, style),
+		strings.Repeat("─", width),
 	}
 	for _, entry := range state.Entries {
 		label, color := entryLabel(entry.Kind)
-		if _, err := fmt.Fprintf(w, "%s\n", style(color+bold, label+":")); err != nil {
-			return err
-		}
+		lines = append(lines, style(color+bold, label+":"))
 		for _, line := range wrap(entry.Text, width-2) {
-			if _, err := fmt.Fprintf(w, "  %s\n", line); err != nil {
-				return err
-			}
+			lines = append(lines, "  "+line)
 		}
 	}
 	if state.Reasoning != "" && state.Busy {
-		if _, err := fmt.Fprintf(w, "%s\n", style(dim, "reasoning: "+truncate(state.Reasoning, width-12))); err != nil {
-			return err
-		}
+		lines = append(lines, style(dim, "reasoning: "+truncate(state.Reasoning, width-12)))
 	}
 	if state.ToolStatus != "" {
-		if _, err := fmt.Fprintf(w, "%s\n", style(yellow, "• "+state.ToolStatus)); err != nil {
-			return err
-		}
+		lines = append(lines, style(yellow, "• "+state.ToolStatus))
 	}
 	if state.LastError != "" {
-		if _, err := fmt.Fprintf(w, "%s\n", style(red, "error: "+state.LastError)); err != nil {
-			return err
-		}
+		lines = append(lines, style(red, "error: "+state.LastError))
 	}
-	if _, err := fmt.Fprintln(w, strings.Repeat("─", width)); err != nil {
-		return err
-	}
+	lines = append(lines, strings.Repeat("─", width))
+	lines = append(lines, state.StatsLine(style))
 	if state.Busy {
-		_, err := fmt.Fprintln(w, style(cyan, "… Agent is working"))
-		return err
+		lines = append(lines, style(cyan, "… Agent is working"))
+	} else {
+		lines = append(lines, style(dim, "/help  /clear  /count  /stats  /quit"))
 	}
-	_, err := fmt.Fprintln(w, style(dim, "/help  /clear  /count  /quit"))
-	return err
+	return lines
 }
 
 func statusText(state State, style func(string, string) string) string {
@@ -149,4 +139,42 @@ func truncate(text string, width int) string {
 		return text
 	}
 	return string(runes[:width-1]) + "…"
+}
+
+func visibleWidth(text string) int {
+	width := 0
+	for i := 0; i < len(text); {
+		if text[i] == '\x1b' {
+			i = skipANSI(text, i)
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(text[i:])
+		if size == 0 {
+			break
+		}
+		if r == '\t' {
+			width += 4
+		} else if r >= 0x1100 && (r <= 0x115f || r >= 0x2e80) {
+			width += 2
+		} else {
+			width++
+		}
+		i += size
+	}
+	return width
+}
+
+func skipANSI(text string, start int) int {
+	if start+1 >= len(text) {
+		return len(text)
+	}
+	if text[start+1] == '[' {
+		for i := start + 2; i < len(text); i++ {
+			if text[i] >= 0x40 && text[i] <= 0x7e {
+				return i + 1
+			}
+		}
+		return len(text)
+	}
+	return start + 1
 }

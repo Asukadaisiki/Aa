@@ -14,6 +14,7 @@ const (
 	EventToolCallDelta  EventType = "tool_call_delta"
 	EventToolCall       EventType = "tool_call"
 	EventToolResult     EventType = "tool_result"
+	EventUsage          EventType = "usage"
 	EventDone           EventType = "done"
 	EventError          EventType = "error"
 )

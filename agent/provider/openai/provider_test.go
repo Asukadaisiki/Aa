@@ -81,3 +81,23 @@ func TestCompleteParsesToolCalls(t *testing.T) {
 		t.Fatalf("unexpected tool calls: %+v", result.ToolCalls)
 	}
 }
+
+func TestStreamParsesPromptCacheUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":4,\"total_tokens\":104,\"prompt_cache_hit_tokens\":75}}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	client, err := New(Config{APIKey: "test-key", URL: server.URL, Model: "test-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Stream(context.Background(), provider.Request{Messages: []provider.Message{{Role: provider.RoleUser, Content: "hello"}}}, func(provider.StreamEvent) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Usage.InputTokens != 25 || result.Usage.CacheReadTokens != 75 || !result.Usage.CacheReported {
+		t.Fatalf("unexpected cache usage: %+v", result.Usage)
+	}
+}

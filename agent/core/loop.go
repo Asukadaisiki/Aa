@@ -73,6 +73,15 @@ func (l *Loop) run(ctx context.Context, events chan<- message.Event) {
 				}
 			case message.EventDone:
 				response = event.Response
+				usage := event.Usage
+				if response != nil {
+					usage = response.Usage
+				}
+				if usage.TotalTokens != 0 || usage.PromptTokens() != 0 {
+					if !sendLoopEvent(ctx, events, message.Event{Type: message.EventUsage, Usage: usage, Round: round}) {
+						return
+					}
+				}
 			case message.EventError:
 				if !sendLoopEvent(ctx, events, event) {
 					return
@@ -89,12 +98,13 @@ func (l *Loop) run(ctx context.Context, events chan<- message.Event) {
 			Role:             provider.RoleAssistant,
 			Content:          response.Content,
 			ReasoningContent: response.ReasoningContent,
+			Usage:            response.Usage,
 			ToolCalls:        cloneToolCalls(response.ToolCalls),
 		}
 		l.session.Append(assistant)
 		if len(response.ToolCalls) == 0 {
 			finalResponse := cloneResponse(*response)
-			sendLoopEvent(ctx, events, message.Event{Type: message.EventDone, Response: &finalResponse, Round: round})
+			sendLoopEvent(ctx, events, message.Event{Type: message.EventDone, Response: &finalResponse, Usage: response.Usage, Round: round})
 			return
 		}
 
