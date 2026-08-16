@@ -1,0 +1,7 @@
+# API key: set DEEPSEEK_API_KEY in the environment.
+provider: deepseek
+model: deepseek-v4-flash
+url: https://api.deepseek.com/chat/completions
+thinking-effort: high
+# Optional; if empty, DEEPSEEK_API_KEY will be used.
+api_key: ""
